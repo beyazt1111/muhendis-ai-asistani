@@ -4,361 +4,346 @@ from PIL import Image
 from fpdf import FPDF
 import io
 
-# --- SAYFA YAPILANDIRMASI ---
+# --- SAYFA AYARLARI ---
 st.set_page_config(
     page_title="Mühendislik Asistanı",
-    page_icon="⚙️",
+    page_icon="📐",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- PDF OLUŞTURMA MOTORU ---
+# --- CSS (ARAYÜZ DÜZENLEMELERİ) ---
+st.markdown("""
+    <style>
+    .block-container {
+        padding-top: 4rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    div[role="radiogroup"] {
+        display: flex;
+        flex-direction: row;
+        width: 100%;
+        overflow-x: auto;
+        gap: 5px;
+        border-bottom: 2px solid #333;
+        padding-bottom: 0px;
+        position: sticky;
+        top: 3.5rem;
+        background-color: #0e1117;
+        z-index: 99999;
+        padding-top: 10px;
+        margin-top: 0px;
+        align-items: end;
+    }
+    div[role="radiogroup"] label > div:first-child { display: none; }
+    div[role="radiogroup"] label {
+        background-color: #1c1f26;
+        border: 1px solid #333;
+        border-bottom: none;
+        border-radius: 10px 10px 0px 0px;
+        padding: 12px 25px;
+        margin-right: 0px !important;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #aaa;
+        font-size: 1rem;
+        font-weight: 500;
+        min-width: 120px;
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 50px !important;
+    }
+    div[role="radiogroup"] label[data-checked="true"] {
+        background-color: #262730 !important;
+        border-top: 3px solid #ff4b4b;
+        border-left: 1px solid #333;
+        border-right: 1px solid #333;
+        color: #ffffff !important;
+        font-weight: bold;
+        border-bottom: 2px solid #262730;
+        margin-bottom: -2px;
+        z-index: 10;
+        height: 55px !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] {
+        flex-direction: column;
+        border-bottom: none;
+        position: static;
+        height: auto !important;
+        padding-top: 0;
+        background-color: transparent;
+        top: 0;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label {
+        height: auto !important;
+        border: none;
+        border-radius: 5px;
+        text-align: left;
+        justify-content: flex-start;
+        background-color: transparent;
+        margin-bottom: 5px;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {
+        height: auto !important;
+        background-color: #262730 !important;
+        border-top: none;
+        border-left: 4px solid #ff4b4b;
+        margin-bottom: 5px;
+    }
+    .stButton>button { border-radius: 8px; font-weight: 600; border: 1px solid #444; }
+    .stTextInput input { color: white !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- PDF MOTORU ---
 class PDF(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 12)
-        self.cell(0, 10, 'Muhendislik Asistani - Rapor Ciktisi', 0, 1, 'C')
+        self.cell(0, 10, 'Muhendislik Asistani Raporu', 0, 1, 'C')
         self.ln(5)
 
 def create_pdf(text):
     pdf = PDF()
     pdf.add_page()
     pdf.set_font("Arial", size=11)
-    
-    # Türkçe karakter uyumluluğu (Latin-1 dönüşümü)
-    replacements = {
-        'ğ': 'g', 'Ğ': 'G', 'ş': 's', 'Ş': 'S', 'ı': 'i', 'İ': 'I',
-        'ü': 'u', 'Ü': 'U', 'ö': 'o', 'Ö': 'O', 'ç': 'c', 'Ç': 'C',
-        'â': 'a', 'î': 'i'
-    }
+    replacements = {'ğ': 'g', 'Ğ': 'G', 'ş': 's', 'Ş': 'S', 'ı': 'i', 'İ': 'I', 'ü': 'u', 'Ü': 'U', 'ö': 'o', 'Ö': 'O', 'ç': 'c', 'Ç': 'C', 'â': 'a'}
     clean_text = text
     for src, target in replacements.items():
         clean_text = clean_text.replace(src, target)
-        
     pdf.multi_cell(0, 10, clean_text)
     return pdf.output(dest="S").encode("latin-1", "ignore")
 
-# --- API ANAHTARI YÖNETİMİ ---
+# --- API ANAHTARI ---
 api_key = None
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
-    pass # Sidebar'da sorulacak
+    pass
 
-# --- GEMINI 2.0 FLASH ENTEGRASYONU ---
+# --- MODEL FONKSİYONU ---
 def get_gemini_response(inputs):
-    """
-    Merkezi model fonksiyonu.
-    Model: gemini-2.0-flash
-    """
-    if not api_key:
-        return "Hata: API Anahtarı bulunamadı."
-    
+    if not api_key: return "Hata: API Anahtarı Eksik."
     try:
         genai.configure(api_key=api_key)
-        # KESİNLİKLE GEMINI 2.0 KULLANILIYOR
         model = genai.GenerativeModel('gemini-2.0-flash')
-        
-        if not isinstance(inputs, list):
-            inputs = [inputs]
-            
+        if not isinstance(inputs, list): inputs = [inputs]
         response = model.generate_content(inputs)
         return response.text
     except Exception as e:
         return f"Sistem Hatası: {e}"
 
-# ==========================================
-# MODÜL 1: TEKNİK RESİM VE DOKÜMAN ANALİZİ
-# ==========================================
+# ==================================================
+# MODÜL 1: DERS ASİSTANI (PDF EKLENDİ)
+# ==================================================
+def sayfa_ders_asistani():
+    if "dersler" not in st.session_state: st.session_state.dersler = {} 
+    if "aktif_ders_sekmesi" not in st.session_state: st.session_state.aktif_ders_sekmesi = "➕ Yeni Ders"
+
+    mevcut_dersler = list(st.session_state.dersler.keys())
+    sekme_secenekleri = mevcut_dersler + ["➕ Yeni Ders"]
+    try: secili_index = sekme_secenekleri.index(st.session_state.aktif_ders_sekmesi)
+    except ValueError: secili_index = len(sekme_secenekleri) - 1
+
+    secilen_sekme = st.radio("nav_ders", sekme_secenekleri, index=secili_index, horizontal=True, label_visibility="collapsed", key="nav_radio")
+    if secilen_sekme != st.session_state.aktif_ders_sekmesi:
+        st.session_state.aktif_ders_sekmesi = secilen_sekme
+        st.rerun()
+
+    st.write("") 
+
+    if st.session_state.aktif_ders_sekmesi == "➕ Yeni Ders":
+        st.markdown("### 🆕 Yeni Ders Oluştur")
+        st.info("Buradan eklediğiniz ders otomatik olarak çalışma alanına eklenecektir.")
+        col1, col2 = st.columns([3, 1])
+        yeni_isim = col1.text_input("Ders Adı", placeholder="Örn: Akışkanlar Mekaniği")
+        if col2.button("Dersi Ekle ve Git", use_container_width=True):
+            if yeni_isim and yeni_isim not in st.session_state.dersler:
+                st.session_state.dersler[yeni_isim] = {'sorular': [], 'formuller': []}
+                st.session_state.aktif_ders_sekmesi = yeni_isim
+                st.rerun()
+            elif yeni_isim in st.session_state.dersler: st.warning("Bu ders zaten var.")
+
+    else:
+        ders_adi = st.session_state.aktif_ders_sekmesi
+        col_sol, col_sag = st.columns([1, 3])
+        with col_sol:
+            st.markdown(f"### 📂 {ders_adi}")
+            ozellik = st.radio("Araçlar", ["Soru Çözücü", "Formül Defteri", "Örnek Sınav"], key=f"rad_{ders_adi}")
+            st.markdown("---")
+            if st.button(f"Dersi Sil", key=f"del_{ders_adi}"):
+                del st.session_state.dersler[ders_adi]
+                st.session_state.aktif_ders_sekmesi = "➕ Yeni Ders"
+                st.rerun()
+
+        with col_sag:
+            if ozellik == "Soru Çözücü":
+                st.info("Soruyu yükleyin, Yapay Zeka çözsün.")
+                # PDF DESTEĞİ EKLENDİ
+                q_file = st.file_uploader("Soru Dosyası (PDF/Resim)", type=["jpg", "png", "pdf"], key=f"up_{ders_adi}")
+                
+                if q_file:
+                    # Görselse Göster, PDF ise ikon göster
+                    if q_file.type != "application/pdf":
+                        img = Image.open(q_file)
+                        st.image(img, width=400)
+                        input_data = img
+                    else:
+                        st.success("📄 PDF Yüklendi")
+                        input_data = {"mime_type": "application/pdf", "data": q_file.getvalue()}
+
+                    if st.button("Çöz ve Kaydet", key=f"solve_{ders_adi}", type="primary"):
+                        if api_key:
+                            with st.spinner("Çözülüyor..."):
+                                prompt = f"Ders: {ders_adi}. Adım adım çöz. En alta '---FORMÜLLER---' başlığı ile formülleri listele."
+                                res = get_gemini_response([prompt, input_data])
+                                parts = res.split("---FORMÜLLER---")
+                                st.markdown(parts[0])
+                                st.session_state.dersler[ders_adi]['sorular'].append(parts[0])
+                                if len(parts) > 1:
+                                    st.session_state.dersler[ders_adi]['formuller'].append(parts[1].strip())
+                                    st.success("Formüller kaydedildi.")
+                        else: st.error("API Anahtarı eksik.")
+
+            elif ozellik == "Formül Defteri":
+                st.subheader("Kayıtlı Formüller")
+                flist = st.session_state.dersler[ders_adi]['formuller']
+                if flist:
+                    for f in flist: st.code(f)
+                    st.download_button("PDF İndir", create_pdf("\n".join(flist)), "Formuller.pdf")
+                else: st.warning("Henüz kayıtlı formül yok.")
+
+            elif ozellik == "Örnek Sınav":
+                st.subheader("Deneme Sınavı")
+                if st.button("Sınav Hazırla", key=f"ex_{ders_adi}"):
+                    hist = str(st.session_state.dersler[ders_adi]['sorular'])[:2500]
+                    if not hist: st.warning("Önce soru çözdürmelisiniz.")
+                    else:
+                        with st.spinner("Hazırlanıyor..."):
+                            res = get_gemini_response(f"Ders: {ders_adi}. 4 soru yaz. Cevap verme. {hist}")
+                            st.markdown(res)
+                            st.download_button("Sınav PDF", create_pdf(res), "Sinav.pdf")
+
+# ==================================================
+# MODÜL 2: TEKNİK RESİM ANALİZİ (PDF ZATEN VARDI)
+# ==================================================
 def sayfa_analiz():
     st.title("Teknik Resim Analizi")
-    st.markdown("Teknik dokümanlarınızı yükleyin, analiz türünü seçin ve detaylı mühendislik raporu alın.")
     st.markdown("---")
-
-    # Hafıza Yönetimi
     if "analiz_msgs" not in st.session_state: st.session_state.analiz_msgs = []
-    if "last_file" not in st.session_state: st.session_state.last_file = None
     
-    # --- ÜST BÖLÜM: DOSYA VE AYARLAR ---
-    col_resim, col_ayar = st.columns([1, 1])
-    
-    uploaded_file = None
-    analiz_tetiklendi = False
-    mod = "Genel Kontrol"
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        f = st.file_uploader("Dosya Yükle", type=["jpg", "png", "pdf"])
+        if f:
+             with st.expander("Önizleme", expanded=False):
+                 if f.type != "application/pdf": st.image(Image.open(f))
+                 else: st.info("PDF Yüklendi")
+    with col2:
+        m = st.selectbox("Mod", ["Genel Kontrol", "İmalat (CAM)", "Malzeme Seçimi", "Maliyet Analizi"])
+        if f and st.button("Analizi Başlat", type="primary", use_container_width=True):
+            c = [f"Bu dosyayı '{m}' modunda analiz et. Profesyonel rapor yaz."]
+            if f.type == "application/pdf": c.append({"mime_type": "application/pdf", "data": f.getvalue()})
+            else: c.append(Image.open(f))
+            with st.spinner("Yapay Zeka dosyayı inceliyor..."):
+                resp = get_gemini_response(c)
+                st.session_state.analiz_msgs = [{"role": "assistant", "content": resp}]
+                st.rerun()
 
-    with col_resim:
-        st.subheader("1. Dosya Seçimi")
-        uploaded_file = st.file_uploader("Dosya Yükle (PDF, JPG, PNG)", type=["jpg", "png", "pdf", "webp"])
-        
-        if uploaded_file:
-            # Dosya değişirse hafızayı temizle
-            if st.session_state.last_file != uploaded_file.name:
-                st.session_state.analiz_msgs = []
-                st.session_state.last_file = uploaded_file.name
-            
-            # Önizleme (Varsayılan olarak kapalı)
-            with st.expander("Dosya Önizleme", expanded=False):
-                if uploaded_file.type != "application/pdf":
-                    image = Image.open(uploaded_file)
-                    st.image(image, use_column_width=True)
-                else:
-                    st.info("PDF dosyası işleme hazır.")
-
-    with col_ayar:
-        st.subheader("2. Analiz Parametreleri")
-        if uploaded_file:
-            mod = st.selectbox(
-                "Analiz Kapsamı",
-                ["Genel Hata Kontrolü", "İmalat Uygunluğu (CAM)", "Kalite Kontrol (GD&T)", "Malzeme Seçimi", "Maliyet Analizi"]
-            )
-            
-            if len(st.session_state.analiz_msgs) == 0:
-                if st.button("Analizi Başlat", type="primary", use_container_width=True):
-                    analiz_tetiklendi = True
-        else:
-            st.info("İşlem yapmak için lütfen dosya yükleyin.")
-
-    # --- ANALİZ İŞLEMİ (GEMINI 2.0) ---
-    if analiz_tetiklendi and uploaded_file and api_key:
-        prompt = f"""
-        Sen tecrübeli bir Baş Mühendissin. Yüklenen teknik dokümanı '{mod}' kapsamında detaylıca incele.
-        Raporunu profesyonel, teknik bir dille ve maddeler halinde Türkçe olarak yaz.
-        Duygusal ifadelerden kaçın, sadece teknik verilere ve gözlemlere odaklan.
-        """
-        
-        # İçerik Hazırlığı
-        input_content = [prompt]
-        if uploaded_file.type == "application/pdf":
-            input_content.append({"mime_type": "application/pdf", "data": uploaded_file.getvalue()})
-        else:
-            input_content.append(Image.open(uploaded_file))
-            
-        with st.spinner("Doküman analiz ediliyor..."):
-            cevap = get_gemini_response(input_content)
-            st.session_state.analiz_msgs.append({"role": "assistant", "content": cevap})
-            st.rerun()
-
-    # --- ALT BÖLÜM: RAPOR VE SOHBET (TAM EKRAN) ---
-    if len(st.session_state.analiz_msgs) > 0:
+    if st.session_state.analiz_msgs:
         st.divider()
-        st.subheader("Analiz Sonuçları ve Soru-Cevap")
-        
-        for i, msg in enumerate(st.session_state.analiz_msgs):
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-                
-                # İlk mesaj (Rapor) ise İndirme Butonu
-                if i == 0:
-                    pdf_bytes = create_pdf(msg["content"])
-                    st.download_button("Raporu PDF Olarak Kaydet", pdf_bytes, "Analiz_Raporu.pdf", "application/pdf")
-
-        # Sohbet Girişi
-        if prompt := st.chat_input("Raporla ilgili teknik sorunuzu buraya yazın..."):
+        for msg in st.session_state.analiz_msgs:
+            st.markdown(msg["content"])
+            if msg == st.session_state.analiz_msgs[0]:
+                st.download_button("Raporu PDF İndir", create_pdf(msg["content"]), "Rapor.pdf", "application/pdf")
+        if prompt := st.chat_input("Raporla ilgili sormak istediğiniz bir detay var mı?"):
             st.session_state.analiz_msgs.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
+            st.chat_message("user").markdown(prompt)
+            hist = "\n".join([m["content"] for m in st.session_state.analiz_msgs])
+            c = [f"Önceki analiz bağlamında cevap ver: {prompt}\nGeçmiş: {hist}"]
+            if f: 
+                if f.type == "application/pdf": c.append({"mime_type": "application/pdf", "data": f.getvalue()})
+                else: c.append(Image.open(f))
+            res = get_gemini_response(c)
+            st.session_state.analiz_msgs.append({"role": "assistant", "content": res})
+            st.chat_message("assistant").markdown(res)
 
-            with st.chat_message("assistant"):
-                with st.spinner("Yanıt oluşturuluyor..."):
-                    # Bağlam
-                    context_prompt = f"Önceki analiz bağlamı: {mod}. Kullanıcı sorusu: {prompt}"
-                    
-                    # Görsel + Geçmiş + Yeni Soru
-                    input_content = [context_prompt]
-                    if uploaded_file:
-                        if uploaded_file.type == "application/pdf":
-                            input_content.append({"mime_type": "application/pdf", "data": uploaded_file.getvalue()})
-                        else:
-                            input_content.append(Image.open(uploaded_file))
-                    
-                    history_text = "\n".join([m["content"] for m in st.session_state.analiz_msgs])
-                    input_content.append(f"Geçmiş Konuşma:\n{history_text}")
-
-                    cevap = get_gemini_response(input_content)
-                    st.markdown(cevap)
-                    st.session_state.analiz_msgs.append({"role": "assistant", "content": cevap})
-
-
-# ==========================================
-# MODÜL 2: STAJ DEFTERİ DÜZENLEYİCİ
-# ==========================================
+# ==================================================
+# MODÜL 3: STAJ DEFTERİ (SOLA HİZALANDI)
+# ==================================================
 def sayfa_staj():
     st.title("Staj Defteri Düzenleyici")
-    st.markdown("Ham notlarınızı kurumsal ve teknik bir dile çevirerek staj defteri formatına getirir.")
     st.markdown("---")
     
-    col1, col2 = st.columns(2)
-    tarih = col1.date_input("Faaliyet Tarihi")
-    konu = col2.text_input("Yapılan İş / Konu", placeholder="Örn: CNC Dik İşleme Operasyonu")
+    # --- DEĞİŞİKLİK: COLUMNS (2 Sütun) KALDIRILDI, TEK SÜTUN OLDU ---
+    d = st.date_input("Faaliyet Tarihi")
+    t = st.text_input("Yapılan İş / Konu", placeholder="Örn: CNC Dik İşleme Operasyonu")
+    n = st.text_area("Ham Notlar", height=150, placeholder="Örn: Bugün usta ile tezgahın periyodik bakımını yaptık.")
     
-    notlar = st.text_area("Günlük Notlarınız", height=200, placeholder="Örn: Usta ile tezgahı açtık. Referans noktalarına gönderdik. G54 kodunu anlattı. Parçayı bağlarken komparatör saati kullandık.")
-    
-    if st.button("Metni Oluştur", type="primary"):
-        if not api_key:
-            st.error("API Anahtarı eksik.")
-        elif not notlar:
-            st.warning("Lütfen notlarınızı girin.")
-        else:
-            prompt = f"""
-            Aşağıdaki staj notlarını, bir mühendislik öğrencisinin resmi staj defterine yazacağı formatta yeniden düzenle.
-            
-            Kurallar:
-            1. Edilgen çatı kullan (Yapıldı, incelendi, gözlemlendi).
-            2. Teknik terimler kullan (Örn: 'Vidaladık' yerine 'Tork anahtarı ile sıkıldı').
-            3. Giriş ve sonuç cümleleri ekleme, sadece içeriği yaz.
-            
-            Tarih: {tarih}
-            Konu: {konu}
-            Ham Notlar: {notlar}
-            """
-            
-            with st.spinner("Metin düzenleniyor..."):
-                cevap = get_gemini_response(prompt)
-                
-                st.success("Düzenlenmiş Metin:")
-                st.write(cevap)
-                
-                # PDF Çıktısı
-                pdf_text = f"Tarih: {tarih}\nKonu: {konu}\n\n{cevap}"
-                pdf_data = create_pdf(pdf_text)
-                
-                st.download_button(
-                    label="Sayfayı PDF Olarak İndir",
-                    data=pdf_data,
-                    file_name=f"Staj_Defteri_{tarih}.pdf",
-                    mime="application/pdf"
-                )
+    if st.button("Profesyonel Metne Çevir", type="primary"):
+        with st.spinner("Yapay Zeka metni düzenliyor..."):
+            res = get_gemini_response(f"Staj notu teknik dil, edilgen çatı: {n}")
+            st.write(res)
+            st.download_button("Sayfayı PDF Olarak İndir", create_pdf(f"{d} - {t}\n\n{res}"), "Staj.pdf")
 
-# ==========================================
-# MODÜL 3: MÜLAKAT SİMÜLASYONU (PRO)
-# ==========================================
+# ==================================================
+# MODÜL 4: MÜLAKAT KOÇU (PDF EKLENDİ)
+# ==================================================
 def sayfa_mulakat():
-    st.title("Teknik Mülakat Simülasyonu")
-    st.markdown("Hedef şirket ve pozisyon detaylarını girerek yapay zeka ile teknik mülakat provası yapın.")
+    st.title("Mülakat Simülasyonu")
     st.markdown("---")
-
-    if "mulakat_msgs" not in st.session_state: st.session_state.mulakat_msgs = []
-    if "mulakat_cv" not in st.session_state: st.session_state.mulakat_cv = None
-
-    # Parametreler
-    col1, col2 = st.columns(2)
-    with col1:
-        sirket = st.text_input("Hedef Şirket", placeholder="Örn: Bilinmeyen Makine A.Ş.")
-        sektor = st.text_input("Şirketin Faaliyet Alanı", placeholder="Örn: Hidrolik Pompa Üretimi, Savunma Sanayi vb.")
-        pozisyon = st.text_input("Başvurulan Pozisyon", placeholder="Örn: Üretim Mühendisi")
-        
-    with col2:
-        cv_file = st.file_uploader("CV Yükle (Opsiyonel / PDF)", type=["pdf"])
-
-    # Başlat Butonu
-    if st.button("Simülasyonu Başlat", type="primary"):
-        if not sirket or not sektor or not pozisyon:
-            st.warning("Lütfen şirket ve pozisyon bilgilerini eksiksiz girin.")
-        else:
-            st.session_state.mulakat_msgs = []
-            st.session_state.mulakat_cv = cv_file if cv_file else None
-            
-            ilk_mesaj = f"Merhaba. Ben {sirket} firmasından ({sektor} alanında faaliyet gösteriyoruz) Teknik Müdürüm. {pozisyon} pozisyonu için görüşmemize hoş geldin. Bize kısaca kendinden ve teknik geçmişinden bahseder misin?"
-            st.session_state.mulakat_msgs.append({"role": "assistant", "content": ilk_mesaj})
-            st.rerun()
-
-    # Sohbet Akışı
-    if st.session_state.mulakat_msgs:
-        st.divider()
-        
-        for msg in st.session_state.mulakat_msgs:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-        
-        if prompt := st.chat_input("Cevabınız..."):
-            st.session_state.mulakat_msgs.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-            with st.chat_message("assistant"):
-                with st.spinner("Yanıt bekleniyor..."):
-                    
-                    gecmis = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.mulakat_msgs])
-                    
-                    # System Prompt (Sektör Bilgisi Dahil)
-                    system_prompt = f"""
-                    Sen {sirket} şirketinde ({sektor} sektörü) çalışan profesyonel bir Teknik Yöneticisin.
-                    Pozisyon: {pozisyon}.
-                    
-                    GÖREVLERİN:
-                    1. Adayın cevabını teknik açıdan değerlendir.
-                    2. Sektör ({sektor}) ile ilgili spesifik teknik sorular sor.
-                    3. CV varsa, oradaki projelerden detay iste.
-                    4. STAR (Situation-Task-Action-Result) tekniğine uygun cevaplar bekle.
-                    5. Kısa ve net konuş.
-                    
-                    Konuşma Geçmişi:
-                    {gecmis}
-                    """
-                    
-                    inputs = [system_prompt]
-                    if st.session_state.mulakat_cv:
-                        inputs.append({"mime_type": "application/pdf", "data": st.session_state.mulakat_cv.getvalue()})
-                        inputs.append("Adayın CV dokümanı ektedir.")
-                    
-                    cevap = get_gemini_response(inputs)
-                    st.markdown(cevap)
-                    st.session_state.mulakat_msgs.append({"role": "assistant", "content": cevap})
-
-        # Değerlendirme Butonu
-        if len(st.session_state.mulakat_msgs) > 4:
-            st.divider()
-            if st.button("Görüşmeyi Sonlandır ve Raporla"):
-                degerlendirme_prompt = f"""
-                Mülakat tamamlandı. Adayın performansını değerlendir.
-                Şirket: {sirket} ({sektor})
-                
-                Lütfen aşağıdaki formatta bir karne oluştur:
-                1. GENEL PUAN (10 üzerinden)
-                2. GÜÇLÜ YÖNLER
-                3. GELİŞİME AÇIK YÖNLER
-                4. TEKNİK TAVSİYELER (Bu sektöre özel)
-                
-                Konuşma Geçmişi: {st.session_state.mulakat_msgs}
-                """
-                with st.spinner("Performans raporu hazırlanıyor..."):
-                    karne = get_gemini_response(degerlendirme_prompt)
-                    st.success("Mülakat Sonuç Raporu")
-                    st.markdown(karne)
-                    
-                    pdf_bytes = create_pdf(karne)
-                    st.download_button("Karneyi PDF Olarak İndir", pdf_bytes, "Mulakat_Sonucu.pdf", "application/pdf")
-
-# ==========================================
-# ANA MENÜ (SIDEBAR)
-# ==========================================
-with st.sidebar:
-    st.title("Mühendislik Asistanı")
-    st.caption("v5.0 Pro | Gemini 2.0 Flash")
-    st.markdown("---")
+    if "mlog" not in st.session_state: st.session_state.mlog = []
+    c1, c2 = st.columns(2)
     
-    if not api_key:
+    s = c1.text_input("Şirket Adı", placeholder="Örn: TUSAŞ")
+    sec = c1.text_input("Sektör", placeholder="Örn: Savunma Sanayi")
+    p = c2.text_input("Pozisyon", placeholder="Örn: Üretim Mühendisi")
+    cv = c2.file_uploader("CV (PDF)", type=["pdf"])
+    
+    if st.button("Simülasyonu Başlat", type="primary"):
+        st.session_state.mlog = [{"role": "assistant", "content": f"Merhaba. Ben {s} ({sec}) firmasından Teknik Müdürüm. {p} pozisyonu için seninle görüşmek istiyorum."}]
+        st.rerun()
+        
+    for m in st.session_state.mlog: st.chat_message(m["role"]).markdown(m["content"])
+    
+    if usr := st.chat_input("Cevabınızı buraya yazın..."):
+        st.session_state.mlog.append({"role": "user", "content": usr})
+        st.chat_message("user").write(usr)
+        inps = [f"Sen {s} ({sec}) yöneticisisin. Doğal konuş. Geçmiş: {st.session_state.mlog}"]
+        if cv: inps += [{"mime_type": "application/pdf", "data": cv.getvalue()}, "CV Ekte"]
+        
+        with st.spinner("Mülakatçı dinliyor..."):
+            res = get_gemini_response(inps)
+            st.session_state.mlog.append({"role": "assistant", "content": res})
+            st.chat_message("assistant").write(res)
+    
+    if len(st.session_state.mlog) > 4:
+        st.divider()
+        if st.button("Görüşmeyi Bitir ve Raporla"):
+            with st.spinner("Yapay Zeka performansınızı analiz ediyor..."):
+                rpt = get_gemini_response(f"Mülakatı değerlendir. Puanla. Geçmiş: {st.session_state.mlog}")
+                st.markdown(rpt)
+                st.download_button("Karne PDF", create_pdf(rpt), "Karne.pdf")
+
+# ==================================================
+# ANA MENÜ (SOL TARAF)
+# ==================================================
+with st.sidebar:
+    st.header("Mühendislik Asistanı")
+    if not api_key: 
         api_key = st.text_input("API Anahtarı", type="password")
         st.caption("Otomatik giriş için secrets.toml kullanın.")
     else:
-        st.success("Sistem Bağlı")
+        st.success("Yapay Zeka Bağlantısı Aktif")
     
     st.markdown("---")
-    
-    secim = st.radio(
-        "Modüller",
-        ["Teknik Resim Analizi", "Staj Defteri Düzenleyici", "Mülakat Simülasyonu"],
-        label_visibility="collapsed"
-    )
-    
+    nav = st.radio("Modüller", ["Ders Çalışma Asistanı", "Teknik Resim Analizi", "Staj Defteri", "Mülakat Koçu"], label_visibility="collapsed")
     st.markdown("---")
-    if st.button("Oturumu Temizle", use_container_width=True):
-        st.session_state.clear()
-        st.rerun()
+    if st.button("Oturumu Temizle"): st.session_state.clear(); st.rerun()
 
-# Sayfa Yönlendirme
-if secim == "Teknik Resim Analizi":
-    sayfa_analiz()
-elif secim == "Staj Defteri Düzenleyici":
-    sayfa_staj()
-elif secim == "Mülakat Simülasyonu":
-    sayfa_mulakat()
+if nav == "Ders Çalışma Asistanı": sayfa_ders_asistani()
+elif nav == "Teknik Resim Analizi": sayfa_analiz()
+elif nav == "Staj Defteri": sayfa_staj()
+elif nav == "Mülakat Koçu": sayfa_mulakat()
