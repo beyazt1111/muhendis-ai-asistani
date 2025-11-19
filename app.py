@@ -2,169 +2,205 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
-# --- SAYFA AYARLARI (Geniş Düzen) ---
-st.set_page_config(page_title="Analiz Asistanı", page_icon="📊", layout="wide")
+# --- SAYFA AYARLARI ---
+st.set_page_config(page_title="Mühendis AI - Süper App", page_icon="🛠️", layout="wide")
 
-# Başlık
-st.title("Analiz Asistanı V4.1 (Pro Arayüz)")
-st.markdown("---")
-
-# --- API ANAHTARI ---
+# --- API ANAHTARI YÖNETİMİ (GLOBAL) ---
 api_key = None
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
+    # Eğer otomatik giriş yoksa sidebar'da sor
     with st.sidebar:
-        st.warning("⚠️ Otomatik giriş yapılamadı.")
+        st.warning("⚠️ API Anahtarı Bulunamadı")
         api_key = st.text_input("Gemini API Anahtarı", type="password")
 
-# --- HAFIZA (SESSION STATE) ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "last_uploaded_file" not in st.session_state:
-    st.session_state.last_uploaded_file = None
-
-# --- YAN MENÜ (Temizleme) ---
-with st.sidebar:
-    st.header("⚙️ Ayarlar")
-    if st.button("🗑️ Temizle ve Başa Dön", use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.last_uploaded_file = None
-        st.rerun()
+# --- MODEL FONKSİYONU (GEMINI 2.0 FLASH) ---
+def get_gemini_response(prompt, image=None):
+    if not api_key:
+        return "Lütfen önce API anahtarını girin."
+    
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-2.0-flash') # GÜÇLÜ MODEL
+    
+    try:
+        if image:
+            response = model.generate_content([prompt, image])
+        else:
+            response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"Hata oluştu: {e}"
 
 # ==========================================
-# 1. BÖLÜM: GİRİŞ VE AYARLAR (ÜST KISIM)
+# 1. SAYFA: TEKNİK RESİM ANALİZİ (ESKİ SİSTEM)
 # ==========================================
-
-# Ekranı ikiye bölüyoruz: Resim ve Ayarlar
-col_resim, col_ayar = st.columns([1, 1])
-
-uploaded_file = None
-mod = "Genel Kontrol"
-analiz_tetiklendi = False
-
-with col_resim:
-    st.subheader("1. Dosya Yükle")
-    uploaded_file = st.file_uploader("Teknik Resim Seçin", type=["jpg", "jpeg", "png", "pdf", "webp"])
+def sayfa_teknik_resim():
+    st.title("📐 Teknik Resim Analiz Asistanı")
+    st.markdown("Teknik resimlerinizi yükleyin, hataları bulun ve raporlayın.")
+    
+    # Hafıza
+    if "analiz_msgs" not in st.session_state: st.session_state.analiz_msgs = []
+    
+    col1, col2 = st.columns([1, 1])
+    
+    uploaded_file = col1.file_uploader("Teknik Resim Yükle", type=["jpg", "png", "pdf", "webp"])
+    mod = col2.selectbox("Analiz Modu", ["Genel Kontrol", "İmalatçı", "Kalite Kontrol", "Malzeme", "Maliyet"])
     
     if uploaded_file:
-        # Dosya değişirse hafızayı temizle
-        if st.session_state.last_uploaded_file != uploaded_file.name:
-            st.session_state.messages = []
-            st.session_state.last_uploaded_file = uploaded_file.name
-
-        # --- DEĞİŞİKLİK BURADA: expanded=False YAPTIK ---
-        with st.expander("🖼️ Yüklenen Dosyayı Görüntüle (Tıkla)", expanded=False):
-            if uploaded_file.type in ["image/jpeg", "image/png", "image/webp"]:
+        with col1.expander("Dosyayı Görüntüle", expanded=False):
+            if uploaded_file.type != "application/pdf":
                 image = Image.open(uploaded_file)
                 st.image(image, use_column_width=True)
-            elif uploaded_file.type == "application/pdf":
-                st.success("📄 PDF dosyası hazır.")
-
-with col_ayar:
-    st.subheader("2. Analiz Ayarları")
-    
-    if uploaded_file:
-        mod = st.selectbox(
-            "Hangi gözle bakılsın?",
-            [
-                "Genel Kontrol", 
-                "İmalatçı (CNC/Torna)", 
-                "Kalite Kontrol (GD&T)", 
-                "🧪 Malzeme Danışmanı", 
-                "💰 Maliyet Tahmini"
-            ]
-        )
         
-        st.info(f"Seçilen Mod: **{mod}**")
-        
-        # Analiz Butonu
-        if len(st.session_state.messages) == 0:
-            if st.button("Analizi Başlat 🚀", type="primary", use_container_width=True):
-                analiz_tetiklendi = True
-    else:
-        st.warning("👈 Lütfen sol taraftan dosya yükleyerek başlayın.")
-
-# ==========================================
-# 2. BÖLÜM: İŞLEM VE SONUÇLAR (TAM EKRAN)
-# ==========================================
-
-if uploaded_file and api_key:
-    
-    # --- ANALİZ İŞLEMİ ---
-    if analiz_tetiklendi:
-        genai.configure(api_key=api_key)
-        
-        # --- MODEL: GEMINI 2.0 FLASH ---
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        
-        base_prompt = "Sen uzman bir Makine Mühendisisin. Bu dosyayı incele. "
-        ozel_istek = ""
-        if mod == "Genel Kontrol": ozel_istek = "Eksik ölçüleri ve hataları listele."
-        elif mod == "İmalatçı (CNC/Torna)": ozel_istek = "CNC operatörü gözüyle bak. İşleme zorlukları neler?"
-        elif mod == "Kalite Kontrol (GD&T)": ozel_istek = "Toleranslara odaklan."
-        elif mod == "🧪 Malzeme Danışmanı": ozel_istek = "Malzeme önerisi yap."
-        elif mod == "💰 Maliyet Tahmini": ozel_istek = "Maliyet analizi yap."
-
-        full_prompt = base_prompt + ozel_istek + " Cevabı Türkçe, detaylı ve maddeler halinde ver."
-
-        with st.spinner('Gemini 2.0 raporu hazırlıyor...'):
-            try:
-                input_data = None
-                if uploaded_file.type == "application/pdf":
-                    input_data = {"mime_type": "application/pdf", "data": uploaded_file.getvalue()}
-                else:
-                    input_data = Image.open(uploaded_file)
-
-                response = model.generate_content([full_prompt, input_data])
-                st.session_state.messages.append({"role": "assistant", "content": response.text})
-                st.rerun()
+        if col2.button("Analizi Başlat 🚀", type="primary", use_container_width=True):
+            if api_key:
+                prompt = f"Sen uzman bir mühendissin. Bu resmi '{mod}' modunda analiz et. Detaylı Türkçe rapor yaz."
                 
-            except Exception as e:
-                st.error(f"Hata: {e}")
+                # Veri hazırlığı
+                img_data = Image.open(uploaded_file) if uploaded_file.type != "application/pdf" else {"mime_type": "application/pdf", "data": uploaded_file.getvalue()}
+                
+                with st.spinner("Gemini 2.0 inceliyor..."):
+                    cevap = get_gemini_response(prompt, img_data)
+                    st.session_state.analiz_msgs = [{"role": "assistant", "content": cevap}]
+                    st.rerun()
 
-    # --- SONUÇ EKRANI ---
-    if len(st.session_state.messages) > 0:
+    # Sonuç Ekranı
+    if st.session_state.analiz_msgs:
         st.divider()
-        st.header("📝 Analiz Raporu ve Sohbet")
+        for msg in st.session_state.analiz_msgs:
+            st.markdown(msg["content"])
+            st.download_button("📥 Raporu İndir", msg["content"], "Analiz.txt")
+
+# ==========================================
+# 2. SAYFA: FORMÜL & ÖDEV FOTOĞRAFÇISI
+# ==========================================
+def sayfa_odev_cozucu():
+    st.title("📸 Formül ve Problem Çözücü")
+    st.info("Defterindeki karmaşık sorunun fotoğrafını çek yükle, Gemini adım adım çözsün.")
+    
+    uploaded_file = st.file_uploader("Sorunun Fotoğrafını Yükle", type=["jpg", "png", "webp"])
+    
+    if uploaded_file and api_key:
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Yüklenen Soru", width=400)
         
-        for i, message in enumerate(st.session_state.messages):
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-                
-                if i == 0:
-                    st.download_button(
-                        label="📥 Raporu İndir (TXT)",
-                        data=message["content"],
-                        file_name="Analiz_Raporu.txt",
-                        mime="text/plain"
-                    )
+        if st.button("Soruyu Çöz 🧠", type="primary"):
+            prompt = """
+            Sen uzman bir profesörsün. Bu görseldeki matematik/fizik/mühendislik problemini çöz.
+            1. Önce soruyu anladığını belirt.
+            2. Hangi formülleri kullanacağını yaz.
+            3. Adım adım işlemi yap.
+            4. Sonucu net bir şekilde belirt.
+            """
+            with st.spinner("Profesör düşünüyor..."):
+                cevap = get_gemini_response(prompt, image)
+                st.success("Çözüm:")
+                st.markdown(cevap)
 
-        if prompt := st.chat_input("Raporda anlamadığınız bir yer var mı? Sorun cevaplayayım..."):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
+# ==========================================
+# 3. SAYFA: MALZEME KIYASLAMA MOTORU
+# ==========================================
+def sayfa_malzeme_kiyasla():
+    st.title("⚖️ Malzeme Kıyaslama Motoru")
+    st.markdown("İki farklı malzemeyi teknik özellikleri ve kullanım alanlarına göre kıyaslayın.")
+    
+    col1, col2 = st.columns(2)
+    m1 = col1.text_input("1. Malzeme (Örn: Alüminyum 6061)")
+    m2 = col2.text_input("2. Malzeme (Örn: Çelik 1040)")
+    
+    if m1 and m2 and st.button("Kıyasla ⚔️", type="primary"):
+        prompt = f"""
+        '{m1}' ile '{m2}' malzemelerini bir makine mühendisi için kıyasla.
+        Aşağıdaki başlıkları içeren bir MARKDOWN TABLOSU oluştur:
+        - Yoğunluk
+        - Akma Mukavemeti (Yield Strength)
+        - Korozyon Direnci
+        - Tahmini Maliyet
+        - Yaygın Kullanım Alanları
+        
+        Tablonun altına hangisinin hangi durumda seçilmesi gerektiğini yorumla.
+        """
+        with st.spinner("Veritabanı taranıyor..."):
+            cevap = get_gemini_response(prompt)
+            st.markdown(cevap)
 
-            with st.chat_message("assistant"):
-                with st.spinner("Gemini 2.0 düşünüyor..."):
-                    try:
-                        genai.configure(api_key=api_key)
-                        model = genai.GenerativeModel('gemini-2.0-flash')
-                        
-                        input_data = None
-                        if uploaded_file.type == "application/pdf":
-                            input_data = {"mime_type": "application/pdf", "data": uploaded_file.getvalue()}
-                        else:
-                            input_data = Image.open(uploaded_file)
-                        
-                        chat_history = [full_prompt, input_data]
-                        for msg in st.session_state.messages:
-                            chat_history.append(msg["content"])
-                        chat_history.append(prompt)
+# ==========================================
+# 4. SAYFA: KOD ÇEVİRİCİ (MATLAB <-> PYTHON)
+# ==========================================
+def sayfa_kod_cevirici():
+    st.title("💻 Kod Çevirici & Açıklayıcı")
+    st.markdown("MATLAB kodlarını Python'a çevirin veya kodunuzdaki hatayı bulun.")
+    
+    kod = st.text_area("Kodunuzu buraya yapıştırın:", height=200)
+    islem = st.selectbox("Ne yapmak istersiniz?", ["MATLAB -> Python Çevir", "Python -> MATLAB Çevir", "Koddaki Hatayı Bul", "Kodu Açıkla"])
+    
+    if kod and st.button("Çalıştır ⚡"):
+        prompt = f"Sen uzman bir yazılımcısın. Aşağıdaki kod için şu işlemi yap: {islem}.\n\nKOD:\n{kod}\n\nLütfen sadece kodu ve kısa bir açıklamayı ver."
+        with st.spinner("Kodlanıyor..."):
+            cevap = get_gemini_response(prompt)
+            st.code(cevap)
 
-                        response = model.generate_content(chat_history)
-                        st.markdown(response.text)
-                        st.session_state.messages.append({"role": "assistant", "content": response.text})
-                        
-                    except Exception as e:
-                        st.error(f"Hata: {e}")
+# ==========================================
+# 5. SAYFA: MÜLAKAT SİMÜLASYONU
+# ==========================================
+def sayfa_mulakat_kocu():
+    st.title("👔 Mülakat Simülasyonu")
+    st.markdown("Yapay zeka İK veya Teknik Müdür olsun, seni mülakata alsın.")
+    
+    # Mülakat hafızası
+    if "mulakat_msgs" not in st.session_state: 
+        st.session_state.mulakat_msgs = [{"role": "assistant", "content": "Merhaba! Hangi pozisyon için mülakat yapmak istiyorsun? (Örn: Tasarım Mühendisi, Ar-Ge, Üretim Stajyeri)"}]
+
+    # Mesajları göster
+    for msg in st.session_state.mulakat_msgs:
+        st.chat_message(msg["role"]).markdown(msg["content"])
+    
+    # Kullanıcı girişi
+    if prompt := st.chat_input("Cevabını yaz..."):
+        st.session_state.mulakat_msgs.append({"role": "user", "content": prompt})
+        st.chat_message("user").markdown(prompt)
+        
+        # Gemini Cevabı (Bağlamlı)
+        gecmis = [m["content"] for m in st.session_state.mulakat_msgs]
+        full_prompt = f"""
+        Sen sert ama adil bir Mühendislik Müdürüsün. Şu an bir mülakattayız.
+        Kullanıcının cevabına göre ona teknik bir soru sor veya cevabını puanla.
+        Konuşma Geçmişi: {gecmis}
+        """
+        
+        with st.spinner("Mülakatçı düşünüyor..."):
+            cevap = get_gemini_response(full_prompt)
+            st.session_state.mulakat_msgs.append({"role": "assistant", "content": cevap})
+            st.chat_message("assistant").markdown(cevap)
+            st.rerun()
+
+# ==========================================
+# ANA MENÜ YÖNETİMİ (SOL TARAF)
+# ==========================================
+with st.sidebar:
+    st.title("Mühendis AI")
+    st.write("V5.0 - Super App")
+    st.markdown("---")
+    
+    secim = st.radio(
+        "Araç Seçimi:",
+        ["📐 Teknik Resim Analizi", "📸 Ödev Çözücü", "⚖️ Malzeme Kıyasla", "💻 Kod Çevirici", "👔 Mülakat Koçu"]
+    )
+    
+    st.markdown("---")
+    if st.button("🗑️ Tüm Geçmişi Temizle"):
+        st.session_state.clear()
+        st.rerun()
+
+# Seçime göre sayfayı getir
+if secim == "📐 Teknik Resim Analizi":
+    sayfa_teknik_resim()
+elif secim == "📸 Ödev Çözücü":
+    sayfa_odev_cozucu()
+elif secim == "⚖️ Malzeme Kıyasla":
+    sayfa_malzeme_kiyasla()
+elif secim == "💻 Kod Çevirici":
+    sayfa_kod_cevirici()
+elif secim == "👔 Mülakat Koçu":
+    sayfa_mulakat_kocu()
