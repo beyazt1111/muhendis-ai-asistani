@@ -56,7 +56,7 @@ with col_analiz:
         if st.button("Analizi Başlat 🚀", type="primary"):
             genai.configure(api_key=api_key)
             # Model seçimi (En kararlı olanı)
-            model = genai.GenerativeModel('gemini-1.5-flash') 
+            model = genai.GenerativeModel('gemini-2.0-flash') 
             
             base_prompt = "Sen uzman bir Makine Mühendisisin. Bu dosyayı incele. "
             
