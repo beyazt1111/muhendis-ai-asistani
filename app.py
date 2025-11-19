@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CSS (ARAYÜZ DÜZENLEMELERİ) ---
+# --- CSS (DÜZELTİLMİŞ SOLA DAYALI MENÜ & TEMA) ---
 st.markdown("""
     <style>
     .block-container {
@@ -20,6 +20,8 @@ st.markdown("""
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
+    
+    /* --- ÜST SEKME ÇUBUĞU (DERSLER) --- */
     div[role="radiogroup"] {
         display: flex;
         flex-direction: row;
@@ -37,6 +39,8 @@ st.markdown("""
         align-items: end;
     }
     div[role="radiogroup"] label > div:first-child { display: none; }
+    
+    /* Üst Sekmelerin Görünümü */
     div[role="radiogroup"] label {
         background-color: #1c1f26;
         border: 1px solid #333;
@@ -56,6 +60,8 @@ st.markdown("""
         justify-content: center;
         height: 50px !important;
     }
+    
+    /* Üst Sekme Aktif */
     div[role="radiogroup"] label[data-checked="true"] {
         background-color: #262730 !important;
         border-top: 3px solid #ff4b4b;
@@ -68,8 +74,12 @@ st.markdown("""
         z-index: 10;
         height: 55px !important;
     }
+
+    /* --- SIDEBAR (SOL MENÜ) KESİN DÜZELTME --- */
     section[data-testid="stSidebar"] div[role="radiogroup"] {
+        display: flex;
         flex-direction: column;
+        gap: 5px;
         border-bottom: none;
         position: static;
         height: auto !important;
@@ -77,22 +87,34 @@ st.markdown("""
         background-color: transparent;
         top: 0;
     }
+    
     section[data-testid="stSidebar"] div[role="radiogroup"] label {
         height: auto !important;
+        min-height: 45px;
         border: none;
-        border-radius: 5px;
+        border-radius: 8px;
+        
+        /* İŞTE BURASI DÜZELTİLDİ: SOLA YASLA */
+        display: flex;
+        justify-content: flex-start !important; /* Sola yasla */
+        align-items: center;
         text-align: left;
-        justify-content: flex-start;
+        padding-left: 15px !important; /* Soldan boşluk */
+        
         background-color: transparent;
-        margin-bottom: 5px;
+        margin-bottom: 2px;
+        color: #ccc;
+        width: 100%;
     }
+    
     section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {
-        height: auto !important;
         background-color: #262730 !important;
         border-top: none;
         border-left: 4px solid #ff4b4b;
-        margin-bottom: 5px;
+        color: #ffffff !important;
+        font-weight: 600;
     }
+
     .stButton>button { border-radius: 8px; font-weight: 600; border: 1px solid #444; }
     .stTextInput input { color: white !important; }
     </style>
@@ -136,7 +158,7 @@ def get_gemini_response(inputs):
         return f"Sistem Hatası: {e}"
 
 # ==================================================
-# MODÜL 1: DERS ASİSTANI (PDF EKLENDİ)
+# MODÜL 1: DERS ASİSTANI
 # ==================================================
 def sayfa_ders_asistani():
     if "dersler" not in st.session_state: st.session_state.dersler = {} 
@@ -156,7 +178,6 @@ def sayfa_ders_asistani():
 
     if st.session_state.aktif_ders_sekmesi == "➕ Yeni Ders":
         st.markdown("### 🆕 Yeni Ders Oluştur")
-        st.info("Buradan eklediğiniz ders otomatik olarak çalışma alanına eklenecektir.")
         col1, col2 = st.columns([3, 1])
         yeni_isim = col1.text_input("Ders Adı", placeholder="Örn: Akışkanlar Mekaniği")
         if col2.button("Dersi Ekle ve Git", use_container_width=True):
@@ -171,7 +192,8 @@ def sayfa_ders_asistani():
         col_sol, col_sag = st.columns([1, 3])
         with col_sol:
             st.markdown(f"### 📂 {ders_adi}")
-            ozellik = st.radio("Araçlar", ["Soru Çözücü", "Formül Defteri", "Örnek Sınav"], key=f"rad_{ders_adi}")
+            # EKLENEN: Konu Özeti Seçeneği
+            ozellik = st.radio("Araçlar", ["Soru Çözücü", "Konu Özeti", "Formül Defteri", "Örnek Sınav"], key=f"rad_{ders_adi}")
             st.markdown("---")
             if st.button(f"Dersi Sil", key=f"del_{ders_adi}"):
                 del st.session_state.dersler[ders_adi]
@@ -179,34 +201,91 @@ def sayfa_ders_asistani():
                 st.rerun()
 
         with col_sag:
+            
+            # --- 1. SORU ÇÖZÜCÜ (GELİŞTİRİLMİŞ) ---
             if ozellik == "Soru Çözücü":
-                st.info("Soruyu yükleyin, Yapay Zeka çözsün.")
-                # PDF DESTEĞİ EKLENDİ
-                q_file = st.file_uploader("Soru Dosyası (PDF/Resim)", type=["jpg", "png", "pdf"], key=f"up_{ders_adi}")
+                st.info("Sorunun fotoğrafını yükleyin veya kamerayla çekin. Yapay Zeka hangi soruyu çözdüğünü belirterek anlatsın.")
                 
+                # İki seçenekli yükleme: Dosya veya Kamera
+                kaynak_turu = st.radio("Görsel Kaynağı", ["Dosya Yükle (Resim/PDF)", "Kamera ile Çek"], horizontal=True, label_visibility="collapsed")
+                
+                q_file = None
+                if kaynak_turu == "Dosya Yükle (Resim/PDF)":
+                    q_file = st.file_uploader("Dosya Seç", type=["jpg", "png", "pdf"], key=f"up_{ders_adi}", label_visibility="collapsed")
+                else:
+                    q_file = st.camera_input("Fotoğraf Çek", key=f"cam_{ders_adi}")
+
+                # Hangi sorunun çözüleceğini belirtme kutusu
+                hangi_soru = st.text_input("Hangi soruyu çözeyim?", placeholder="Örn: Sayfa 3, Soru 5 (Boş bırakırsan hepsini analiz ederim)")
+
                 if q_file:
-                    # Görselse Göster, PDF ise ikon göster
-                    if q_file.type != "application/pdf":
-                        img = Image.open(q_file)
-                        st.image(img, width=400)
-                        input_data = img
+                    input_data = None
+                    # Veri tipi kontrolü (Kamera veya Dosya)
+                    if hasattr(q_file, 'type') and q_file.type == "application/pdf":
+                         st.success("📄 PDF Algılandı")
+                         input_data = {"mime_type": "application/pdf", "data": q_file.getvalue()}
                     else:
-                        st.success("📄 PDF Yüklendi")
-                        input_data = {"mime_type": "application/pdf", "data": q_file.getvalue()}
+                         # Resim (Kamera veya Upload)
+                         img = Image.open(q_file)
+                         st.image(img, width=400)
+                         input_data = img
 
                     if st.button("Çöz ve Kaydet", key=f"solve_{ders_adi}", type="primary"):
                         if api_key:
-                            with st.spinner("Çözülüyor..."):
-                                prompt = f"Ders: {ders_adi}. Adım adım çöz. En alta '---FORMÜLLER---' başlığı ile formülleri listele."
+                            with st.spinner("Yapay Zeka soruyu analiz ediyor..."):
+                                prompt = f"""
+                                Ders: {ders_adi}.
+                                KULLANICI İSTEĞİ: {hangi_soru if hangi_soru else "Görünen soruları analiz et."}
+                                
+                                GÖREVLER:
+                                1. Önce hangi sayfadaki hangi soruyu çözdüğünü net bir şekilde yaz (Örn: **Sayfa 2, Soru 4 Çözümü:**).
+                                2. Soruyu adım adım, bir öğrenciye anlatır gibi çöz.
+                                3. Çözümün en altına '---FORMÜLLER---' başlığı at ve bu soruda kullanılan formülleri listele.
+                                """
                                 res = get_gemini_response([prompt, input_data])
+                                
                                 parts = res.split("---FORMÜLLER---")
                                 st.markdown(parts[0])
                                 st.session_state.dersler[ders_adi]['sorular'].append(parts[0])
+                                
                                 if len(parts) > 1:
                                     st.session_state.dersler[ders_adi]['formuller'].append(parts[1].strip())
                                     st.success("Formüller kaydedildi.")
                         else: st.error("API Anahtarı eksik.")
 
+            # --- 2. KONU ÖZETİ (YENİ EKLENDİ) ---
+            elif ozellik == "Konu Özeti":
+                st.subheader("📚 Akıllı Konu Özeti")
+                st.info("İster ders notu (PDF/Resim) yükleyin, ister konu başlığı yazın. Yapay Zeka özetlesin.")
+                
+                ozet_kaynak = st.radio("Kaynak", ["Konu Başlığı Yaz", "Ders Notu Yükle"], horizontal=True)
+                
+                ozet_metni = ""
+                ozet_dosya = None
+                
+                if ozet_kaynak == "Konu Başlığı Yaz":
+                    konu_basligi = st.text_input("Konu Başlığı", placeholder="Örn: Termodinamiğin 2. Yasası")
+                else:
+                    konu_basligi = st.text_input("Konu Başlığı (Opsiyonel)", placeholder="Örn: Bu notların özeti")
+                    ozet_dosya = st.file_uploader("Not Dosyası", type=["pdf", "jpg", "png"], key=f"ozet_up_{ders_adi}")
+
+                if st.button("Özetle", key=f"ozet_btn_{ders_adi}", type="primary"):
+                    with st.spinner("Özetleniyor..."):
+                        prompt = f"Ders: {ders_adi}. Konu: {konu_basligi}. Bu konuyu/dokümanı bir mühendislik öğrencisi için özetle. Ana kavramları, önemli formülleri ve dikkat edilmesi gereken noktaları maddeler halinde yaz."
+                        
+                        inputs = [prompt]
+                        if ozet_dosya:
+                             if ozet_dosya.type == "application/pdf":
+                                 inputs.append({"mime_type": "application/pdf", "data": ozet_dosya.getvalue()})
+                             else:
+                                 inputs.append(Image.open(ozet_dosya))
+                        
+                        res = get_gemini_response(inputs)
+                        st.markdown(res)
+                        st.download_button("Özeti PDF İndir", create_pdf(res), "Ozet.pdf")
+
+
+            # --- 3. FORMÜL DEFTERİ ---
             elif ozellik == "Formül Defteri":
                 st.subheader("Kayıtlı Formüller")
                 flist = st.session_state.dersler[ders_adi]['formuller']
@@ -215,6 +294,7 @@ def sayfa_ders_asistani():
                     st.download_button("PDF İndir", create_pdf("\n".join(flist)), "Formuller.pdf")
                 else: st.warning("Henüz kayıtlı formül yok.")
 
+            # --- 4. ÖRNEK SINAV ---
             elif ozellik == "Örnek Sınav":
                 st.subheader("Deneme Sınavı")
                 if st.button("Sınav Hazırla", key=f"ex_{ders_adi}"):
@@ -227,21 +307,20 @@ def sayfa_ders_asistani():
                             st.download_button("Sınav PDF", create_pdf(res), "Sinav.pdf")
 
 # ==================================================
-# MODÜL 2: TEKNİK RESİM ANALİZİ (PDF ZATEN VARDI)
+# MODÜL 2: TEKNİK RESİM ANALİZİ
 # ==================================================
 def sayfa_analiz():
     st.title("Teknik Resim Analizi")
     st.markdown("---")
     if "analiz_msgs" not in st.session_state: st.session_state.analiz_msgs = []
-    
-    col1, col2 = st.columns([1, 1])
-    with col1:
+    c1, c2 = st.columns([1, 1])
+    with c1:
         f = st.file_uploader("Dosya Yükle", type=["jpg", "png", "pdf"])
         if f:
              with st.expander("Önizleme", expanded=False):
                  if f.type != "application/pdf": st.image(Image.open(f))
                  else: st.info("PDF Yüklendi")
-    with col2:
+    with c2:
         m = st.selectbox("Mod", ["Genel Kontrol", "İmalat (CAM)", "Malzeme Seçimi", "Maliyet Analizi"])
         if f and st.button("Analizi Başlat", type="primary", use_container_width=True):
             c = [f"Bu dosyayı '{m}' modunda analiz et. Profesyonel rapor yaz."]
@@ -258,7 +337,7 @@ def sayfa_analiz():
             st.markdown(msg["content"])
             if msg == st.session_state.analiz_msgs[0]:
                 st.download_button("Raporu PDF İndir", create_pdf(msg["content"]), "Rapor.pdf", "application/pdf")
-        if prompt := st.chat_input("Raporla ilgili sormak istediğiniz bir detay var mı?"):
+        if prompt := st.chat_input("Raporla ilgili soru sor..."):
             st.session_state.analiz_msgs.append({"role": "user", "content": prompt})
             st.chat_message("user").markdown(prompt)
             hist = "\n".join([m["content"] for m in st.session_state.analiz_msgs])
@@ -271,25 +350,42 @@ def sayfa_analiz():
             st.chat_message("assistant").markdown(res)
 
 # ==================================================
-# MODÜL 3: STAJ DEFTERİ (SOLA HİZALANDI)
+# MODÜL 3: STAJ DEFTERİ (SOLA DAYALI + PDF)
 # ==================================================
 def sayfa_staj():
     st.title("Staj Defteri Düzenleyici")
     st.markdown("---")
     
-    # --- DEĞİŞİKLİK: COLUMNS (2 Sütun) KALDIRILDI, TEK SÜTUN OLDU ---
+    # Kaynak Seçimi (Metin veya Dosya)
+    kaynak = st.radio("Veri Girişi", ["Not Yaz", "Dosya Yükle (Foto/PDF)"], horizontal=True)
+    
     d = st.date_input("Faaliyet Tarihi")
-    t = st.text_input("Yapılan İş / Konu", placeholder="Örn: CNC Dik İşleme Operasyonu")
-    n = st.text_area("Ham Notlar", height=150, placeholder="Örn: Bugün usta ile tezgahın periyodik bakımını yaptık.")
+    t = st.text_input("Yapılan İş / Konu", placeholder="Örn: CNC Operasyonu")
+    
+    not_text = ""
+    not_file = None
+    
+    if kaynak == "Not Yaz":
+        not_text = st.text_area("Ham Notlar", height=150, placeholder="Örn: Bugün usta ile tezgah bakımı yaptık.")
+    else:
+        not_file = st.file_uploader("Not Dosyası", type=["jpg", "png", "pdf"])
     
     if st.button("Profesyonel Metne Çevir", type="primary"):
-        with st.spinner("Yapay Zeka metni düzenliyor..."):
-            res = get_gemini_response(f"Staj notu teknik dil, edilgen çatı: {n}")
+        with st.spinner("Yapay Zeka düzenliyor..."):
+            prompt = f"Staj notunu teknik dille, edilgen çatıda (yapıldı, edildi) yaz. Tarih: {d}, Konu: {t}."
+            inputs = [prompt]
+            
+            if not_text: inputs[0] += f"\nNotlar: {not_text}"
+            if not_file:
+                if not_file.type == "application/pdf": inputs.append({"mime_type": "application/pdf", "data": not_file.getvalue()})
+                else: inputs.append(Image.open(not_file))
+            
+            res = get_gemini_response(inputs)
             st.write(res)
             st.download_button("Sayfayı PDF Olarak İndir", create_pdf(f"{d} - {t}\n\n{res}"), "Staj.pdf")
 
 # ==================================================
-# MODÜL 4: MÜLAKAT KOÇU (PDF EKLENDİ)
+# MODÜL 4: MÜLAKAT KOÇU
 # ==================================================
 def sayfa_mulakat():
     st.title("Mülakat Simülasyonu")
